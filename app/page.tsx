@@ -1,20 +1,11 @@
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { FileText, Edit, Clock, TrendingUp, AlertCircle, CheckCircle } from "lucide-react"
 import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts"
-import { FileText, Edit, Clock, CheckCircle, TrendingUp, AlertCircle } from "lucide-react"
+  NewsPerDayChart,
+  NewsByCategoryChart,
+  StatusPieChart,
+} from "@/components/dashboard-charts"
 
 // Dummy data for charts
 const newsPerDayData = [
@@ -149,35 +140,7 @@ export default function DashboardPage() {
                 <CardDescription>Últimos 7 días</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={newsPerDayData}>
-                    <defs>
-                      <linearGradient id="colorNoticias" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="oklch(0.68 0.19 35)" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="oklch(0.68 0.19 35)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.24 0.01 270)" />
-                    <XAxis dataKey="day" stroke="oklch(0.58 0.01 270)" style={{ fontSize: "12px" }} />
-                    <YAxis stroke="oklch(0.58 0.01 270)" style={{ fontSize: "12px" }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "oklch(0.14 0.01 270)",
-                        border: "1px solid oklch(0.24 0.01 270)",
-                        borderRadius: "8px",
-                        color: "oklch(0.96 0.005 270)",
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="noticias"
-                      stroke="oklch(0.68 0.19 35)"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#colorNoticias)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <NewsPerDayChart data={newsPerDayData} />
               </CardContent>
             </Card>
 
@@ -188,22 +151,7 @@ export default function DashboardPage() {
                 <CardDescription>Distribución actual</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={newsByCategoryData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.24 0.01 270)" />
-                    <XAxis dataKey="categoria" stroke="oklch(0.58 0.01 270)" style={{ fontSize: "12px" }} />
-                    <YAxis stroke="oklch(0.58 0.01 270)" style={{ fontSize: "12px" }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "oklch(0.14 0.01 270)",
-                        border: "1px solid oklch(0.24 0.01 270)",
-                        borderRadius: "8px",
-                        color: "oklch(0.96 0.005 270)",
-                      }}
-                    />
-                    <Bar dataKey="cantidad" fill="oklch(0.68 0.19 35)" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <NewsByCategoryChart data={newsByCategoryData} />
               </CardContent>
             </Card>
           </div>
@@ -217,41 +165,7 @@ export default function DashboardPage() {
                 <CardDescription>Total: 188 noticias</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
-                  <PieChart>
-                    <Pie
-                      data={statusData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {statusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "oklch(0.14 0.01 270)",
-                        border: "1px solid oklch(0.24 0.01 270)",
-                        borderRadius: "8px",
-                        color: "oklch(0.96 0.005 270)",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {statusData.map((item) => (
-                    <div key={item.name} className="flex items-center gap-2">
-                      <div className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-                      <span className="text-xs text-muted-foreground">
-                        {item.name}: {item.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <StatusPieChart data={statusData} />
               </CardContent>
             </Card>
 
@@ -319,7 +233,10 @@ export default function DashboardPage() {
           <CardContent>
             <div className="space-y-4">
               {recentActivity.map((item, index) => (
-                <div key={index} className="flex items-start gap-4 pb-4 border-b border-border last:border-0 last:pb-0">
+                <div
+                  key={index}
+                  className="flex items-start gap-4 pb-4 border-b border-border last:border-0 last:pb-0"
+                >
                   <div className="h-2 w-2 rounded-full bg-primary mt-2 shrink-0" />
                   <div className="flex-1 space-y-1">
                     <p className="text-sm font-medium">{item.action}</p>

@@ -1,19 +1,124 @@
+import { notFound } from "next/navigation"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/dashboard-layout"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Sparkles, Save, Send, Calendar, Upload, Copy, RefreshCw } from "lucide-react"
-import Link from "next/link"
+import {
+  Sparkles,
+  Save,
+  Send,
+  Calendar,
+  Upload,
+  Copy,
+  RefreshCw,
+} from "lucide-react"
+import { createSupabaseServer } from "@/lib/supabase/server"
 
-export default function EditNoticiaPage() {
+// ---------- Tipos basados en tu schema ----------
+type ArticleRow = {
+  id: string
+  title: string
+  slug: string
+  summary: string | null
+  body: string | null
+  status: string
+  category_id: string
+  source_name: string | null
+  source_url: string | null
+  hero_image_url: string | null
+  ia_raw_summary: string | null
+  published_at: string | null
+}
+
+type CategoryRow = {
+  id: string
+  name: string
+  slug: string
+}
+
+interface EditNoticiaPageProps {
+  params: Promise<{ id: string }>
+}
+
+// ---------- Page ----------
+export default async function EditNoticiaPage({ params }: EditNoticiaPageProps) {
+
+  // ⬇️ FIX: Next 16 devuelve params como PROMISE
+  const { id } = await params
+
+  const supabase = createSupabaseServer()
+
+  // 👉 1) Traemos la nota + 2) todas las categorías, en paralelo
+  const [
+    { data: articleData, error: articleError },
+    { data: categoriesData, error: categoriesError },
+  ] = await Promise.all([
+    supabase
+      .from("articles")
+      .select(`
+        id,
+        title,
+        slug,
+        summary,
+        body,
+        status,
+        category_id,
+        source_name,
+        source_url,
+        hero_image_url,
+        ia_raw_summary,
+        published_at
+      `)
+      .eq("id", id)                 // ⬅️ FIX REAL
+      .maybeSingle(),
+
+    supabase
+      .from("categories")
+      .select("id, name, slug")
+      .order("name", { ascending: true }),
+  ])
+
+  if (articleError) {
+    console.error("Supabase error (article) en EditNoticiaPage:", articleError)
+    return notFound()
+  }
+
+  if (!articleData) {
+    return notFound()
+  }
+
+  if (categoriesError) {
+    console.error("Supabase error (categories) en EditNoticiaPage:", categoriesError)
+  }
+
+  const article = articleData as ArticleRow
+  const categories = (categoriesData as CategoryRow[] | null) ?? []
+
+  const currentCategory =
+    categories.find((c) => c.id === article.category_id) ?? null
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -25,14 +130,16 @@ export default function EditNoticiaPage() {
               <span className="text-foreground">Editar noticia</span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-balance">
-              Crisis económica: El dólar alcanza nuevo récord histórico
+              {article.title}
             </h1>
           </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
+
           {/* Main Content */}
           <div className="space-y-6 lg:col-span-2">
+
             {/* Meta Information */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
@@ -43,7 +150,7 @@ export default function EditNoticiaPage() {
                   <Label htmlFor="titulo">Título Interno</Label>
                   <Input
                     id="titulo"
-                    defaultValue="Crisis económica: El dólar alcanza nuevo récord histórico"
+                    defaultValue={article.title}
                     className="bg-background"
                   />
                 </div>
@@ -52,7 +159,7 @@ export default function EditNoticiaPage() {
                   <Label htmlFor="slug">Slug (URL)</Label>
                   <Input
                     id="slug"
-                    defaultValue="crisis-economica-dolar-record-historico"
+                    defaultValue={article.slug}
                     className="bg-background font-mono text-sm"
                   />
                 </div>
@@ -60,16 +167,16 @@ export default function EditNoticiaPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="estado">Estado</Label>
-                    <Select defaultValue="publicada">
+                    <Select defaultValue={article.status}>
                       <SelectTrigger id="estado" className="bg-background">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="borrador">Borrador</SelectItem>
-                        <SelectItem value="revision">En revisión</SelectItem>
-                        <SelectItem value="programada">Programada</SelectItem>
-                        <SelectItem value="publicada">Publicada</SelectItem>
-                        <SelectItem value="archivada">Archivada</SelectItem>
+                        <SelectItem value="draft">Borrador</SelectItem>
+                        <SelectItem value="review">En revisión</SelectItem>
+                        <SelectItem value="scheduled">Programada</SelectItem>
+                        <SelectItem value="published">Publicada</SelectItem>
+                        <SelectItem value="archived">Archivada</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -80,7 +187,13 @@ export default function EditNoticiaPage() {
                       <Input
                         id="fecha"
                         type="datetime-local"
-                        defaultValue="2025-11-25T10:30"
+                        defaultValue={
+                          article.published_at
+                            ? new Date(article.published_at)
+                                .toISOString()
+                                .slice(0, 16)
+                            : ""
+                        }
                         className="bg-background"
                       />
                       <Button variant="outline" size="icon">
@@ -92,7 +205,7 @@ export default function EditNoticiaPage() {
               </CardContent>
             </Card>
 
-            {/* Content */}
+            {/* Contenido */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>Contenido</CardTitle>
@@ -102,7 +215,7 @@ export default function EditNoticiaPage() {
                   <Label htmlFor="titular">Titular Público</Label>
                   <Input
                     id="titular"
-                    defaultValue="El dólar alcanza un nuevo máximo histórico en medio de la crisis"
+                    defaultValue={article.title}
                     className="bg-background"
                   />
                 </div>
@@ -112,7 +225,7 @@ export default function EditNoticiaPage() {
                   <Textarea
                     id="bajada"
                     rows={3}
-                    defaultValue="La moneda estadounidense superó la barrera de los $1200 en el mercado paralelo, generando preocupación en el sector empresarial y entre los ahorristas."
+                    defaultValue={article.summary ?? ""}
                     className="bg-background resize-none"
                   />
                 </div>
@@ -143,18 +256,14 @@ export default function EditNoticiaPage() {
                       rows={12}
                       placeholder="Escribe el contenido de la noticia..."
                       className="border-0 focus-visible:ring-0 resize-none"
-                      defaultValue="Buenos Aires - La jornada de hoy marcó un hito en la historia económica argentina, con el dólar paralelo alcanzando un valor récord de $1215 en el mercado informal, superando ampliamente las proyecciones más pesimistas de los analistas financieros.
-
-El incremento del 4.5% en un solo día refleja la creciente incertidumbre económica que atraviesa el país, en un contexto de alta inflación y reservas internacionales en descenso. Economistas consultados atribuyen este fenómeno a múltiples factores, incluyendo la falta de un plan económico claro por parte del gobierno y las expectativas devaluatorias del mercado.
-
-En declaraciones a la prensa, el ministro de Economía intentó transmitir calma, asegurando que 'el gobierno tiene las herramientas necesarias para estabilizar la situación cambiaria en el corto plazo'. Sin embargo, el mercado reaccionó con escepticismo ante estas declaraciones..."
+                      defaultValue={article.body ?? ""}
                     />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Classification */}
+            {/* Clasificación */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>Clasificación</CardTitle>
@@ -162,19 +271,21 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="categoria">Categoría Principal</Label>
-                  <Select defaultValue="argentina">
+                  <Select defaultValue={currentCategory?.id ?? ""}>
                     <SelectTrigger id="categoria" className="bg-background">
-                      <SelectValue />
+                      <SelectValue placeholder="Selecciona una categoría" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mundo">Mundo</SelectItem>
-                      <SelectItem value="argentina">Argentina</SelectItem>
-                      <SelectItem value="zarate">Zárate</SelectItem>
-                      <SelectItem value="opinion">Opinión</SelectItem>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
 
+                {/* Tags estáticos por ahora */}
                 <div className="space-y-2">
                   <Label>Subcategorías / Tags</Label>
                   <div className="flex flex-wrap gap-2">
@@ -195,7 +306,7 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
               </CardContent>
             </Card>
 
-            {/* Source */}
+            {/* Fuente */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>Fuente Original</CardTitle>
@@ -206,19 +317,23 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
                   <Input
                     id="fuente-url"
                     type="url"
-                    defaultValue="https://www.ambito.com/finanzas/dolar/..."
+                    defaultValue={article.source_url ?? ""}
                     className="bg-background"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="fuente-medio">Nombre del medio</Label>
-                  <Input id="fuente-medio" defaultValue="Ámbito Financiero" className="bg-background" />
+                  <Input
+                    id="fuente-medio"
+                    defaultValue={article.source_name ?? ""}
+                    className="bg-background"
+                  />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Image */}
+            {/* Imagen principal */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle>Imagen Principal</CardTitle>
@@ -231,12 +346,17 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
                       <Upload className="mr-2 h-4 w-4" />
                       Subir imagen
                     </Button>
-                    <p className="text-xs text-muted-foreground mt-2">PNG, JPG, GIF hasta 10MB</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      PNG, JPG, GIF hasta 10MB
+                    </p>
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  <Switch id="imagen-ia" />
+                  <Switch
+                    id="imagen-ia"
+                    defaultChecked={!!article.ia_raw_summary}
+                  />
                   <Label htmlFor="imagen-ia" className="text-sm font-normal">
                     Usar imagen generada por IA
                   </Label>
@@ -247,7 +367,8 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Actions */}
+
+            {/* Acciones */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle className="text-lg">Acciones</CardTitle>
@@ -268,7 +389,7 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
               </CardContent>
             </Card>
 
-            {/* AI Summary */}
+            {/* Resumen IA */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -276,8 +397,11 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
                     <Sparkles className="h-5 w-5 text-accent" />
                     Resumen IA
                   </CardTitle>
-                  <Badge variant="outline" className="bg-chart-4/20 text-chart-4 border-chart-4/30">
-                    Activo
+                  <Badge
+                    variant="outline"
+                    className="bg-chart-4/20 text-chart-4 border-chart-4/30"
+                  >
+                    {article.ia_raw_summary ? "Activo" : "Inactivo"}
                   </Badge>
                 </div>
                 <CardDescription>Generado automáticamente</CardDescription>
@@ -285,10 +409,8 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
               <CardContent className="space-y-4">
                 <div className="rounded-lg bg-muted/50 p-4 text-sm">
                   <p className="text-muted-foreground leading-relaxed">
-                    La moneda estadounidense superó los $1200 en el mercado paralelo argentino, marcando un récord
-                    histórico. El incremento del 4.5% en un día refleja la incertidumbre económica actual. Analistas
-                    señalan múltiples factores, incluida la falta de un plan económico claro y expectativas
-                    devaluatorias.
+                    {article.ia_raw_summary ??
+                      "Todavía no hay resumen generado por IA para esta noticia."}
                   </p>
                 </div>
 
@@ -317,7 +439,7 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
               </CardContent>
             </Card>
 
-            {/* Stats */}
+            {/* Stats (placeholder) */}
             <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
               <CardHeader>
                 <CardTitle className="text-lg">Estadísticas</CardTitle>
@@ -341,6 +463,7 @@ En declaraciones a la prensa, el ministro de Economía intentó transmitir calma
                 </div>
               </CardContent>
             </Card>
+
           </div>
         </div>
       </div>
