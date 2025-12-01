@@ -1,15 +1,9 @@
+// app/noticias/page.tsx
+import Link from "next/link"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -18,27 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Plus, Search, Filter, MoreHorizontal, Sparkles } from "lucide-react"
-import Link from "next/link"
+import { Sparkles } from "lucide-react"
 import { createSupabaseServer } from "@/lib/supabase/server"
+import { NewsFilters } from "./_components/news-filters"
+import { RowActionsMenu } from "./_components/row-actions-menu"
 
-// Colores por estado (ajustá keys a tu enum article_status real)
-const statusColors: Record<string, string> = {
-  published: "bg-chart-4/20 text-chart-4 border-chart-4/30",
-  draft: "bg-muted/50 text-muted-foreground border-border",
-  scheduled: "bg-chart-3/20 text-chart-3 border-chart-3/30",
-  review: "bg-primary/20 text-primary border-primary/30",
-  archived: "bg-destructive/20 text-destructive border-destructive/30",
+const PAGE_SIZE = 10
 
-  // por compatibilidad con labels en español si los usás en el futuro
-  Publicada: "bg-chart-4/20 text-chart-4 border-chart-4/30",
-  Borrador: "bg-muted/50 text-muted-foreground border-border",
-  Programada: "bg-chart-3/20 text-chart-3 border-chart-3/30",
-  "En revisión": "bg-primary/20 text-primary border-primary/30",
-  Archivada: "bg-destructive/20 text-destructive border-destructive/30",
-}
-
-// 🔹 Tipo según tu schema
 type ArticleRow = {
   id: string
   title: string
@@ -47,16 +27,77 @@ type ArticleRow = {
   published_at: string | null
   source_name: string | null
   ia_raw_summary: string | null
-  categories?: {
-    name: string
-    slug: string
-  } | null
+  // Supabase devuelve esto como array
+  categories: { name: string | null; slug: string | null }[] | null
 }
 
-export default async function NoticiasPage() {
-  const supabase = createSupabaseServer()
+// 👇 En tu versión de Next, searchParams viene como Promise
+type NoticiasPageProps = {
+  searchParams: Promise<{
+    [key: string]: string | string[] | undefined
+  }>
+}
 
-  const { data, error, count } = await supabase
+const statusColors: Record<string, string> = {
+  published: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  draft: "bg-muted/50 text-muted-foreground border-border",
+  scheduled: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  review: "bg-primary/15 text-primary border-primary/30",
+  archived: "bg-destructive/15 text-destructive border-destructive/30",
+}
+
+export default async function NoticiasPage(props: NoticiasPageProps) {
+  const supabase = await createSupabaseServer()
+
+  // 👇 Acá resolvemos la Promise de searchParams
+  const searchParams = await props.searchParams
+
+  // ---------- normalizar search params ----------
+  const rawPage = searchParams.page
+  const rawQ = searchParams.q
+  const rawCategory = searchParams.category
+  const rawStatus = searchParams.status
+  const rawIa = searchParams.ia
+
+  const pageParam =
+    typeof rawPage === "string"
+      ? rawPage
+      : Array.isArray(rawPage)
+      ? rawPage[0]
+      : undefined
+
+  const q =
+    typeof rawQ === "string"
+      ? rawQ
+      : Array.isArray(rawQ)
+      ? rawQ[0]
+      : ""
+
+  const category =
+    typeof rawCategory === "string"
+      ? rawCategory
+      : Array.isArray(rawCategory)
+      ? rawCategory[0]
+      : "todas"
+
+  const status =
+    typeof rawStatus === "string"
+      ? rawStatus
+      : Array.isArray(rawStatus)
+      ? rawStatus[0]
+      : "todos"
+
+  const ia =
+    typeof rawIa === "string"
+      ? rawIa
+      : Array.isArray(rawIa)
+      ? rawIa[0]
+      : "todos"
+
+  const page = Number(pageParam ?? "1") || 1
+
+  // ---------- base query ----------
+  let query = supabase
     .from("articles")
     .select(
       `
@@ -74,14 +115,54 @@ export default async function NoticiasPage() {
     `,
       { count: "exact" }
     )
+
+  // ---------- filtros ----------
+  if (q) query = query.ilike("title", `%${q}%`)
+
+  if (status !== "todos") {
+    query = query.eq("status", status)
+  }
+
+  if (ia === "con-ia") {
+    query = query.not("ia_raw_summary", "is", null)
+  } else if (ia === "sin-ia") {
+    query = query.is("ia_raw_summary", null)
+  }
+
+  if (category !== "todas") {
+    // si en algún momento mapeás slug de categoría, podés usar esto
+    query = query.eq("categories.slug", category)
+  }
+
+  // ---------- paginado ----------
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
+  const { data, error, count } = await query
     .order("published_at", { ascending: false })
-    .limit(50)
+    .range(from, to)
 
   if (error) {
     console.error("Error cargando noticias:", error.message)
+    return (
+      <DashboardLayout>
+        <div className="p-6 text-sm text-destructive">
+          Ocurrió un error al cargar las noticias.
+        </div>
+      </DashboardLayout>
+    )
   }
 
   const articles = (data as ArticleRow[] | null) ?? []
+  const total = count ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // ---------- base query string para los links de paginado ----------
+  const baseParams = new URLSearchParams()
+  if (q) baseParams.set("q", q)
+  if (category !== "todas") baseParams.set("category", category)
+  if (status !== "todos") baseParams.set("status", status)
+  if (ia !== "todos") baseParams.set("ia", ia)
 
   return (
     <DashboardLayout>
@@ -89,7 +170,7 @@ export default async function NoticiasPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-balance">
+            <h1 className="text-3xl font-bold tracking-tight">
               Gestión de Noticias
             </h1>
             <p className="text-muted-foreground mt-1">
@@ -97,71 +178,14 @@ export default async function NoticiasPage() {
             </p>
           </div>
           <Button asChild className="bg-primary hover:bg-primary/90">
-            <Link href="/noticias/nueva">
-              <Plus className="mr-2 h-4 w-4" />
-              Nueva noticia
-            </Link>
+            <Link href="/noticias/nueva">Nueva noticia</Link>
           </Button>
         </div>
 
-        {/* Filters (UI por ahora, sin lógica de filtro) */}
-        <Card className="p-4 bg-gradient-to-br from-card to-card/50 border-border/50">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-1 items-center gap-2">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por título..."
-                  className="pl-9 bg-background"
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select defaultValue="todas">
-                <SelectTrigger className="w-[140px] bg-background">
-                  <SelectValue placeholder="Categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  <SelectItem value="mundo">Mundo</SelectItem>
-                  <SelectItem value="argentina">Argentina</SelectItem>
-                  <SelectItem value="zarate">Zárate</SelectItem>
-                  <SelectItem value="opinion">Opinión</SelectItem>
-                </SelectContent>
-              </Select>
+        {/* Filtros */}
+        <NewsFilters />
 
-              <Select defaultValue="todos">
-                <SelectTrigger className="w-[140px] bg-background">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  <SelectItem value="published">Publicada</SelectItem>
-                  <SelectItem value="draft">Borrador</SelectItem>
-                  <SelectItem value="review">En revisión</SelectItem>
-                  <SelectItem value="scheduled">Programada</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select defaultValue="todos-ia">
-                <SelectTrigger className="w-[140px] bg-background">
-                  <SelectValue placeholder="IA" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos-ia">Todos</SelectItem>
-                  <SelectItem value="con-ia">Con resumen IA</SelectItem>
-                  <SelectItem value="sin-ia">Sin resumen IA</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button variant="outline" size="icon">
-                <Filter className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </Card>
-
-        {/* Table */}
+        {/* Tabla */}
         <Card className="bg-gradient-to-br from-card to-card/50 border-border/50">
           <Table>
             <TableHeader>
@@ -176,71 +200,74 @@ export default async function NoticiasPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {articles.map((article) => (
-                <TableRow
-                  key={article.id}
-                  className="border-border hover:bg-muted/50 transition-colors"
-                >
-                  <TableCell className="font-medium max-w-md">
-                    <Link
-                      href={`/noticias/${article.id}`}
-                      className="hover:text-primary transition-colors line-clamp-2"
-                    >
-                      {article.title}
-                    </Link>
-                  </TableCell>
+              {articles.map((article) => {
+                const cat = article.categories?.[0]
+                const catLabel = cat?.name ?? cat?.slug ?? "Sin categoría"
 
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className="border-primary/30 text-primary"
-                    >
-                      {article.categories?.name ??
-                        article.categories?.slug ??
-                        "Sin categoría"}
-                    </Badge>
-                  </TableCell>
+                return (
+                  <TableRow
+                    key={article.id}
+                    className="border-border hover:bg-muted/50 transition-colors"
+                  >
+                    <TableCell className="font-medium max-w-md">
+                      <Link
+                        href={`/noticias/${article.id}`}
+                        className="hover:text-primary transition-colors line-clamp-2"
+                      >
+                        {article.title}
+                      </Link>
+                    </TableCell>
 
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        statusColors[article.status] ??
-                        "bg-muted/50 text-muted-foreground border-border"
-                      }
-                    >
-                      {article.status}
-                    </Badge>
-                  </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className="border-primary/30 text-primary"
+                      >
+                        {catLabel}
+                      </Badge>
+                    </TableCell>
 
-                  <TableCell className="text-sm text-muted-foreground">
-                    {article.published_at
-                      ? new Date(article.published_at).toLocaleString("es-AR")
-                      : "—"}
-                  </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          statusColors[article.status] ??
+                          "bg-muted/50 text-muted-foreground border-border"
+                        }
+                      >
+                        {article.status}
+                      </Badge>
+                    </TableCell>
 
-                  <TableCell>
-                    {article.ia_raw_summary ? (
-                      <div className="flex items-center gap-1 text-accent">
-                        <Sparkles className="h-4 w-4" />
-                        <span className="text-xs">Sí</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No</span>
-                    )}
-                  </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {article.published_at
+                        ? new Date(article.published_at).toLocaleString("es-AR")
+                        : "—"}
+                    </TableCell>
 
-                  <TableCell className="text-sm text-muted-foreground">
-                    {article.source_name ?? "—"}
-                  </TableCell>
+                    <TableCell>
+                      {article.ia_raw_summary ? (
+                        <div className="flex items-center gap-1 text-accent">
+                          <Sparkles className="h-4 w-4" />
+                          <span className="text-xs">Sí</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No
+                        </span>
+                      )}
+                    </TableCell>
 
-                  <TableCell>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {article.source_name ?? "—"}
+                    </TableCell>
+
+                    <TableCell className="text-right">
+                      <RowActionsMenu articleId={article.id} />
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
 
               {articles.length === 0 && (
                 <TableRow>
@@ -256,34 +283,38 @@ export default async function NoticiasPage() {
           </Table>
         </Card>
 
-        {/* Pagination */}
+        {/* Paginado */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Mostrando{" "}
             <span className="font-medium">{articles.length}</span> de{" "}
-            <span className="font-medium">{count ?? articles.length}</span>{" "}
-            noticias
+            <span className="font-medium">{total}</span> noticias
           </p>
+
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              Anterior
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
-            >
-              1
-            </Button>
-            <Button variant="outline" size="sm">
-              2
-            </Button>
-            <Button variant="outline" size="sm">
-              3
-            </Button>
-            <Button variant="outline" size="sm">
-              Siguiente
-            </Button>
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const pageNum = i + 1
+              const active = pageNum === page
+              const params = new URLSearchParams(baseParams)
+              params.set("page", String(pageNum))
+              const href = `/noticias?${params.toString()}`
+
+              return (
+                <Link key={pageNum} href={href}>
+                  <Button
+                    variant={active ? "default" : "outline"}
+                    size="sm"
+                    className={
+                      active
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                        : ""
+                    }
+                  >
+                    {pageNum}
+                  </Button>
+                </Link>
+              )
+            })}
           </div>
         </div>
       </div>
